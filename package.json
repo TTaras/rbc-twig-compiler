@@ -1,6 +1,6 @@
 {
   "name": "rbc-twig-compiler",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Pre-compiled Twig.js templates",
   "keywords": [
     "rbc",
