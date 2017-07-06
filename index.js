@@ -1,6 +1,5 @@
 /**
  * RBC twigjs compiler
- * Base on twigis 0.10.3
  *
  * @copyright 2011-2016 John Roepke and the Twig.js Contributors
  * @license   Available under the BSD 2-Clause License
@@ -8,7 +7,7 @@
  */
 
 var Twig = {
-    VERSION: '0.0.5'
+    VERSION: '0.0.6'
 };
 
 
@@ -925,110 +924,94 @@ var Twig = {
             rightToLeft: 'rightToLeft'
         };
 
-        var containment = function(a, b) {
-            if (b === undefined || b === null) {
-                return null;
-            } else if (b.indexOf !== undefined) {
-                // String
-                return a === b || a !== '' && b.indexOf(a) > -1;
-            } else {
-                var el;
-                for (el in b) {
-                    if (b.hasOwnProperty(el) && b[el] === a) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        };
-
         /**
-         * Get the precedence and associativity of an operator. These inherit the order from Twig.php.
-         * See https://github.com/twigphp/Twig/blob/1.x/lib/Twig/Extension/Core.php for the table of precedence.
+         * Get the precidence and associativity of an operator. These follow the order that C/C++ use.
+         * See http://en.wikipedia.org/wiki/Operators_in_C_and_C++ for the table of values.
          */
-        Twig.expression.operator.lookup = function(operator, token) {
+        Twig.expression.operator.lookup = function (operator, token) {
             switch (operator) {
                 case "..":
-                    token.precedence = 25;
-                    token.associativity = Twig.expression.operator.leftToRight;
-                    break;
-
-                case 'not in':
-                case 'in':
-                    token.precedence = 20;
+                    token.precidence = 20;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
                 case ',':
-                    token.precedence = 18;
+                    token.precidence = 18;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
                 // Ternary
+                case '?:':
                 case '?':
                 case ':':
-                    token.precedence = 0;
+                    token.precidence = 16;
                     token.associativity = Twig.expression.operator.rightToLeft;
                     break;
 
-                case 'starts with':
-                case 'ends with':
-                case 'matches':
-                    token.precedence = 20;
-                    token.associativity = Twig.expression.operator.leftToRight;
-                    break;
-
                 case 'or':
-                    token.precedence = 10;
+                    token.precidence = 14;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
                 case 'and':
-                    token.precedence = 15;
+                    token.precidence = 13;
+                    token.associativity = Twig.expression.operator.leftToRight;
+                    break;
+
+                case 'b-or':
+                    token.precidence = 12;
+                    token.associativity = Twig.expression.operator.leftToRight;
+                    break;
+
+                case 'b-xor':
+                    token.precidence = 11;
+                    token.associativity = Twig.expression.operator.leftToRight;
+                    break;
+
+                case 'b-and':
+                    token.precidence = 10;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
                 case '==':
                 case '!=':
+                    token.precidence = 9;
+                    token.associativity = Twig.expression.operator.leftToRight;
+                    break;
+
                 case '<':
                 case '<=':
                 case '>':
                 case '>=':
-                    token.precedence = 20;
+                case 'not in':
+                case 'in':
+                    token.precidence = 8;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
-                case '~': // String concatenation
-                    token.precedence = 40;
-                    token.associativity = Twig.expression.operator.leftToRight;
-                    break;
-
+                case '~': // String concatination
                 case '+':
                 case '-':
-                    token.precedence = 30;
+                    token.precidence = 6;
                     token.associativity = Twig.expression.operator.leftToRight;
-                    break;
-
-                case '**':
-                    token.precedence = 200;
-                    token.associativity = Twig.expression.operator.rightToLeft;
                     break;
 
                 case '//':
+                case '**':
                 case '*':
                 case '/':
                 case '%':
-                    token.precedence = 60;
+                    token.precidence = 5;
                     token.associativity = Twig.expression.operator.leftToRight;
                     break;
 
                 case 'not':
-                    token.precedence = 50;
+                    token.precidence = 3;
                     token.associativity = Twig.expression.operator.rightToLeft;
                     break;
 
                 default:
-                    throw new Twig.Error(operator + " is an unknown operator.");
+                    throw new Twig.Error("Failed to lookup operator: " + operator + " is an unknown operator.");
             }
             token.operator = operator;
             return token;
@@ -1110,7 +1093,8 @@ var Twig = {
             Twig.expression.type.parameter.start,
             Twig.expression.type.array.start,
             Twig.expression.type.object.start,
-            Twig.expression.type.subexpression.start
+            Twig.expression.type.subexpression.start,
+            Twig.expression.type.operator.unary
         ]
     };
 
@@ -1203,10 +1187,10 @@ var Twig = {
         },
         {
             type: Twig.expression.type.operator.binary,
-            // Match any of ?:, +, *, /, -, %, ~, <, <=, >, >=, !=, ==, **, ?, :, and, or, in, not in
+            // Match any of ?:, +, *, /, -, %, ~, <, <=, >, >=, !=, ==, **, ?, :, and, b-and, or, b-or, b-xor, in, not in
             // and, or, in, not in can be followed by a space or parenthesis
-            regex: /(^\?\:|^[\+\-~%\?]|^[\:](?!\d\])|^[!=]==?|^[!<>]=?|^\*\*?|^\/\/?|^(and)[\(|\s+]|^(or)[\(|\s+]|^(in)[\(|\s+]|^(not in)[\(|\s+]|^\.\.)/,
-            next: Twig.expression.set.expressions.concat([Twig.expression.type.operator.unary]),
+            regex: /(^\?\:|^(b\-and)|^(b\-or)|^(b\-xor)|^[\+\-~%\?]|^[\:](?!\d\])|^[!=]==?|^[!<>]=?|^\*\*?|^\/\/?|^(and)[\(|\s+]|^(or)[\(|\s+]|^(in)[\(|\s+]|^(not in)[\(|\s+]|^\.\.)/,
+            next: Twig.expression.set.expressions,
             transform: function(match, tokens) {
                 switch(match[0]) {
                     case 'and(':
@@ -1225,7 +1209,6 @@ var Twig = {
                 delete token.match;
 
                 token.value = token.value.trim();
-                token.value = token.value.replace(/\s+/, ' ');
                 var value = token.value,
                     operator = Twig.expression.operator.lookup(value, token);
 
@@ -1235,12 +1218,10 @@ var Twig = {
                 (stack[stack.length-1].type == Twig.expression.type.operator.unary || stack[stack.length-1].type == Twig.expression.type.operator.binary) &&
                 (
                     (operator.associativity === Twig.expression.operator.leftToRight &&
-                    //operator.precidence    >= stack[stack.length-1].precidence) ||
-                    operator.precedence    <= stack[stack.length-1].precedence) ||
+                    operator.precidence    >= stack[stack.length-1].precidence) ||
 
                     (operator.associativity === Twig.expression.operator.rightToLeft &&
-                    //operator.precidence    >  stack[stack.length-1].precidence)
-                    operator.precedence    <  stack[stack.length-1].precedence)
+                    operator.precidence    >  stack[stack.length-1].precidence)
                 )
                     ) {
                     var temp = stack.pop();
@@ -1296,12 +1277,10 @@ var Twig = {
                 (stack[stack.length-1].type == Twig.expression.type.operator.unary || stack[stack.length-1].type == Twig.expression.type.operator.binary) &&
                 (
                     (operator.associativity === Twig.expression.operator.leftToRight &&
-                    //operator.precidence    >= stack[stack.length-1].precidence) ||
-                    operator.precedence    <= stack[stack.length-1].precedence) ||
+                    operator.precidence    >= stack[stack.length-1].precidence) ||
 
                     (operator.associativity === Twig.expression.operator.rightToLeft &&
-                    //operator.precidence    >  stack[stack.length-1].precidence)
-                    operator.precedence    <  stack[stack.length-1].precedence)
+                    operator.precidence    >  stack[stack.length-1].precidence)
                 )
                     ) {
                     var temp = stack.pop();
@@ -1321,7 +1300,7 @@ var Twig = {
             next: Twig.expression.set.operations_extended,
             compile: function(token, stack, output) {
                 var value = token.value;
-                delete token.match;
+                delete token.match
 
                 // Remove the quotes from the string
                 if (value.substring(0, 1) === '"') {
@@ -1412,7 +1391,7 @@ var Twig = {
 
                 param_stack.unshift(token);
 
-                //var is_expression = false;
+                var is_expression = false;
 
                 //If the token at the top of the *stack* is a function token, pop it onto the output queue.
                 // Get the token preceding the parameters
@@ -2056,6 +2035,10 @@ var Twig = {
         include:   'Twig.logic.type.include',
         spaceless: 'Twig.logic.type.spaceless',
         endspaceless: 'Twig.logic.type.endspaceless',
+        macro:     'Twig.logic.type.macro',
+        endmacro:  'Twig.logic.type.endmacro',
+        import_:   'Twig.logic.type.import',
+        from:      'Twig.logic.type.from',
         embed:     'Twig.logic.type.embed',
         endembed:  'Twig.logic.type.endembed'
     };
@@ -2100,10 +2083,10 @@ var Twig = {
             compile: function (token) {
                 var expression = token.match[1];
                 // Compile the expression.
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
                 delete token.match;
                 return token;
             }
@@ -2125,10 +2108,10 @@ var Twig = {
             compile: function (token) {
                 var expression = token.match[1];
                 // Compile the expression.
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
                 delete token.match;
                 return token;
             }
@@ -2197,17 +2180,17 @@ var Twig = {
                 //   for key,item in expression
 
                 // Compile the expression.
-                token.expression = Twig.expression.compile.call(this, {
+                token.expression = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
 
                 // Compile the conditional (if available)
                 if (conditional) {
-                    token.conditional = Twig.expression.compile.call(this, {
+                    token.conditional = Twig.expression.compile.apply(this, [{
                         type:  Twig.expression.type.expression,
                         value: conditional
-                    }).stack;
+                    }]).stack;
                 }
 
                 delete token.match;
@@ -2239,10 +2222,10 @@ var Twig = {
                 var key = token.match[1].trim(),
                     expression = token.match[2],
                     // Compile the expression.
-                    expression_stack  = Twig.expression.compile.call(this, {
+                    expression_stack  = Twig.expression.compile.apply(this, [{
                         type:  Twig.expression.type.expression,
                         value: expression
-                    }).stack;
+                    }]).stack;
 
                 token.key = key;
                 token.expression = expression_stack;
@@ -2298,10 +2281,10 @@ var Twig = {
             compile: function (token) {
                 var expression = "|" + token.match[1].trim();
                 // Compile the expression.
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
                 delete token.match;
                 return token;
             }
@@ -2383,10 +2366,10 @@ var Twig = {
                 var expression = token.match[1].trim();
                 delete token.match;
 
-                token.stack   = Twig.expression.compile.call(this, {
+                token.stack   = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
 
                 return token;
             }
@@ -2405,10 +2388,10 @@ var Twig = {
                 var expression = token.match[1].trim();
                 delete token.match;
 
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
 
                 return token;
             }
@@ -2435,16 +2418,16 @@ var Twig = {
                 token.only = only;
                 token.ignoreMissing = ignoreMissing;
 
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
 
                 if (withContext !== undefined) {
-                    token.withStack = Twig.expression.compile.call(this, {
+                    token.withStack = Twig.expression.compile.apply(this, [{
                         type:  Twig.expression.type.expression,
                         value: withContext.trim()
-                    }).stack;
+                    }]).stack;
                 }
 
                 return token;
@@ -2455,7 +2438,8 @@ var Twig = {
             regex: /^spaceless$/,
             next: [
                 Twig.logic.type.endspaceless
-            ], open: true,
+            ],
+            open: true
         },
 
         // Add the {% endspaceless %} token
@@ -2464,6 +2448,121 @@ var Twig = {
             regex: /^endspaceless$/,
             next: [ ],
             open: false
+        },
+        {
+            /**
+             * Macro logic tokens.
+             *
+             * Format: {% maro input(name, value, type, size) %}
+             *
+             */
+            type: Twig.logic.type.macro,
+            regex: /^macro\s+([a-zA-Z0-9_]+)\s*\(\s*((?:[a-zA-Z0-9_]+(?:,\s*)?)*)\s*\)$/,
+            next: [
+                Twig.logic.type.endmacro
+            ],
+            open: true,
+            compile: function (token) {
+                var macroName = token.match[1],
+                    parameters = token.match[2].split(/[\s,]+/);
+
+                //TODO: Clean up duplicate check
+                for (var i=0; i<parameters.length; i++) {
+                    for (var j=0; j<parameters.length; j++){
+                        if (parameters[i] === parameters[j] && i !== j) {
+                            throw new Twig.Error("Duplicate arguments for parameter: "+ parameters[i]);
+                        }
+                    }
+                }
+
+                token.macroName = macroName;
+                token.parameters = parameters;
+
+                delete token.match;
+                return token;
+            }
+        },
+        {
+            /**
+             * End macro logic tokens.
+             *
+             * Format: {% endmacro %}
+             */
+            type: Twig.logic.type.endmacro,
+            regex: /^endmacro$/,
+            next: [ ],
+            open: false
+        },
+        {
+            /*
+             * import logic tokens.
+             *
+             * Format: {% import "template.twig" as form %}
+             */
+            type: Twig.logic.type.import_,
+            regex: /^import\s+(.+)\s+as\s+([a-zA-Z0-9_]+)$/,
+            next: [ ],
+            open: true,
+            compile: function (token) {
+                var expression = token.match[1].trim(),
+                    contextName = token.match[2].trim();
+                delete token.match;
+
+                token.expression = expression;
+                token.contextName = contextName;
+
+                token.stack = Twig.expression.compile.apply(this, [{
+                    type: Twig.expression.type.expression,
+                    value: expression
+                }]).stack;
+
+                return token;
+            }
+        },
+        {
+            /*
+             * from logic tokens.
+             *
+             * Format: {% from "template.twig" import func as form %}
+             */
+            type: Twig.logic.type.from,
+            regex: /^from\s+(.+)\s+import\s+([a-zA-Z0-9_, ]+)$/,
+            next: [ ],
+            open: true,
+            compile: function (token) {
+                var expression = token.match[1].trim(),
+                    macroExpressions = token.match[2].trim().split(/\s*,\s*/),
+                    macroNames = {};
+
+                for (var i=0; i<macroExpressions.length; i++) {
+                    var res = macroExpressions[i];
+
+                    // match function as variable
+                    var macroMatch = res.match(/^([a-zA-Z0-9_]+)\s+as\s+([a-zA-Z0-9_]+)$/);
+                    if (macroMatch) {
+                        macroNames[macroMatch[1].trim()] = macroMatch[2].trim();
+                    }
+                    else if (res.match(/^([a-zA-Z0-9_]+)$/)) {
+                        macroNames[res] = res;
+                    }
+                    else {
+                        // ignore import
+                    }
+
+                }
+
+                delete token.match;
+
+                token.expression = expression;
+                token.macroNames = macroNames;
+
+                token.stack = Twig.expression.compile.apply(this, [{
+                    type: Twig.expression.type.expression,
+                    value: expression
+                }]).stack;
+
+                return token;
+            }
         },
         {
             /**
@@ -2490,16 +2589,16 @@ var Twig = {
                 token.only = only;
                 token.ignoreMissing = ignoreMissing;
 
-                token.stack = Twig.expression.compile.call(this, {
+                token.stack = Twig.expression.compile.apply(this, [{
                     type:  Twig.expression.type.expression,
                     value: expression
-                }).stack;
+                }]).stack;
 
                 if (withContext !== undefined) {
-                    token.withStack = Twig.expression.compile.call(this, {
+                    token.withStack = Twig.expression.compile.apply(this, [{
                         type:  Twig.expression.type.expression,
                         value: withContext.trim()
-                    }).stack;
+                    }]).stack;
                 }
 
                 return token;
@@ -2536,17 +2635,17 @@ var Twig = {
      *
      * // Define a new tag
      * Twig.logic.extend({
-     *     type: Twig.logic.type.{type},
-     *     // The pattern to match for this token
-     *     regex: ...,
-     *     // What token types can follow this token, leave blank if any.
-     *     next: [ ... ]
-     *     // Create and return compiled version of the token
-     *     compile: function(token) { ... }
-     *     // Parse the compiled token with the context provided by the render call
-     *     //   and whether this token chain is complete.
-     *     parse: function(token, context, chain) { ... }
-     * });
+	     *     type: Twig.logic.type.{type},
+	     *     // The pattern to match for this token
+	     *     regex: ...,
+	     *     // What token types can follow this token, leave blank if any.
+	     *     next: [ ... ]
+	     *     // Create and return compiled version of the token
+	     *     compile: function(token) { ... }
+	     *     // Parse the compiled token with the context provided by the render call
+	     *     //   and whether this token chain is complete.
+	     *     parse: function(token, context, chain) { ... }
+	     * });
      *
      * @param {Object} definition The new logic expression.
      */
